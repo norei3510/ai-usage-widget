@@ -1,0 +1,11 @@
+# Credentials and local setup files must never enter the published repository.
+auth.json
+**/auth.json
+.env
+.env.*
+*.local
+*.log
+.DS_Store
+Thumbs.db
+work/
+tmp/

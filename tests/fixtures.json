@@ -1,0 +1,22 @@
+{
+  "codex": {
+    "rate_limit": {
+      "primary_window": { "limit_window_seconds": 604800, "used_percent": 50, "reset_at": 1791763200 },
+      "secondary_window": { "limit_window_seconds": 18000, "used_percent": 1, "reset_after_seconds": 3600 }
+    }
+  },
+  "opencodeGo": {
+    "usage": {
+      "rolling": { "status": "ok", "percent": 1, "resetsAt": "2026-10-07T14:42:00.000Z" },
+      "weekly": { "status": "ok", "percent": 20, "resetsAt": "2026-10-12T00:15:00.000Z" },
+      "monthly": { "status": "rate-limited", "percent": 100, "resetsAt": "2026-11-01T00:00:00.000Z" }
+    }
+  },
+  "opencodeGoRatioVariant": {
+    "usage": {
+      "rolling": { "used": 1, "limit": 100, "resetInSec": 3600 },
+      "weekly": { "usagePercent": 50, "resetInSec": 7200 }
+    }
+  },
+  "unknownGo": { "meters": { "fiveHour": { "value": 0.5 } } }
+}
