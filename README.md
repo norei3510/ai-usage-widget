@@ -1,12 +1,20 @@
-# AI Usage for iphone
+# AI Usage for iPhone
 
-Codexの5時間・週間と、OpenCode Goの5時間・週間・月間の**残量**を中サイズの1枚に表示
-## 手順
-2. **Scriptableにコードを登録する。** `AI Usage.js` をScriptableに貼り付ける
-3. **実行してOpenCode Goのキーを入力する。** Scriptableの実行ボタンを押します。最初の専用入力欄に発行済みAPIキーを入力して「保存」を押します。Codexは既存Keychainを読み取ります。メニューの「取得済みの中サイズプレビュー」で表示を確認します。初回は既に取得が試行されています。
-4. **中サイズのウィジェットを追加する。** ホーム画面の空白を長押しし、ウィジェット追加でScriptableの中サイズを選びます。追加したウィジェットを長押しして編集し、Scriptに **AI Usage** を指定します。パラメーター入力は不要です。iOSのバージョンによりボタン名は異なります。
+**CodexもOpenCode Goも、ウィジェットをまだ設定していない人向けの版です。** 別のウィジェットを先に導入する必要はありません。
 
-キーを入力せずキャンセルしてもCodexは表示できます。OpenCode Goは「設定が必要」と表示します。ホーム画面からの実行では入力画面は出ません。
+Codexの5時間・週間と、OpenCode Goの5時間・週間・月間の**残量**を、中サイズの1枚に表示します。ライセンスは[MIT](LICENSE)です。
+
+## 始め方（5ステップ）
+
+1. **iPhoneに[Scriptable](https://scriptable.app/)を入れる。** Codexの利用枠があるChatGPTアカウントとOpenCode Goの契約を用意します。Codexの初回認証にはWindows PCまたはMacを使います。
+2. **[AI Usage.js](AI%20Usage.js)を登録する。** GitHubでファイルを開いて「Raw」で表示し、全体をコピーします。Scriptableで「＋」から作ったスクリプトへ貼り付け、名前を **AI Usage** にします。認証情報はコード内へ書きません。
+3. **Codexの専用ログインを作る。** [初めて使う人の設定ガイド](SETUP.md)で、CLIの導入から進めます。Windows用の補助スクリプトは専用ログインを作り、refresh tokenだけをクリップボードへコピーします。すでに対応するCodex認証がiPhoneにある場合は引き継げます。
+4. **AI Usageを実行して両サービスを設定する。** 初回画面の「Codexを設定」からrefresh token、「OpenCode Goを設定」からAPIキーを専用欄へ入力します。両方が保存されると取得へ進みます。片方だけなら「この状態で続ける」で表示できます。
+5. **中サイズのウィジェットを追加する。** ホーム画面の空白を長押しし、ウィジェット追加でScriptableの中サイズを選びます。追加したウィジェットを編集し、Scriptに **AI Usage** を指定します。パラメーターは不要です。iOSによりボタン名は異なります。
+
+日常の残量確認はiPhoneだけで動作します。未設定のサービスは「設定が必要」と表示します。起動時の初回画面で「閉じる」を選ぶと通信せず終了し、保存済み認証も消しません。ホーム画面の実行では入力画面は出ません。
+
+実装・自動検証と、あなたの実アカウント・iPhoneでの確認は別です。[検証記録](VALIDATION.md)の未確認項目を導入時に確認してください。
 
 ## 最初に確認すること
 
@@ -22,7 +30,7 @@ Codexの5時間・週間と、OpenCode Goの5時間・週間・月間の**残量
 1. **最新値を取得してプレビュー** — 両サービスを再取得し、中サイズで表示します。429による待機中は再取得を抑制します。
 2. **取得済みの中サイズプレビュー** — この実行で取得した値を追加通信なしで確認します。
 3. **詳細・エラーを見る** — 最終正常取得・最終試行・各リセットまでの残り時間・安全なエラーコードを表示します。
-4. **設定** — OpenCode Goキーの登録・差替え・削除、更新要求の間隔、Codex再認証トークンの登録を行います。
+4. **設定** — OpenCode Goキーの登録・差替え・削除、更新要求の間隔、Codex認証の初回登録・差替え、初期設定画面を開く操作があります。
 5. **共有用診断を見る** — HTTPステータス、既知フィールドの型、枠の状態だけを表示します。API応答値・任意の未知キー名・認証ヘッダーは含めません。自動送信やクリップボードへのコピーは行いません。
 
 設定でOpenCode Goキーを差し替え・削除すると、そのサービスの古いキャッシュと待機状態も消します。キー削除はiPhone上の保存情報を削除する操作であり、OpenCode側での失効操作ではありません。Codexの保存情報は変更しません。
@@ -53,39 +61,13 @@ Codexの5時間・週間と、OpenCode Goの5時間・週間・月間の**残量
 
 各リクエストに `timeoutInterval = 10` を設定しています。Scriptableの仕様では**通信が待機状態にある時間**のタイムアウトであり、実行全体の厳密な10秒制限ではありません。Codexの更新・401再試行には複数のリクエストが必要です。iOSが実行を先に終了する可能性は残ります。[Request公式資料](https://docs.scriptable.app/request/#timeoutinterval)
 
-Codex更新時はローカルファイルの60秒ロックを確認・取得し、保存済みトークンを読み直します。失敗時も他の実行が更新した保存値を再確認します。**Scriptableには、このファイル操作による原子的な排他の保証がありません。** 同時取得が完全に防げるとは説明しません。元ウィジェットの停止が必要です。手動更新も連打せず、実行終了を待ってください。異常終了時のロックは60秒で失効します。
+Codex更新時はローカルファイルの60秒ロックを確認・取得し、保存済みトークンを読み直します。失敗時も他の実行が更新した保存値を再確認します。**Scriptableには、このファイル操作による原子的な排他の保証がありません。** 同じ認証を使う別のウィジェットがある場合は、その実行を止めます。手動更新も連打せず、実行終了を待ってください。異常終了時のロックは60秒で失効します。
 
-## Codexの認証が失効した場合だけ
+## Codexの認証が失効した場合
 
-通常の移行ではこの操作は不要です。既存の `auth.json` は、Scriptableによるトークン更新後に古くなっている可能性があります。古いファイルからトークンを繰り返し入力しません。
+[初めて使う人の設定ガイド](SETUP.md)のWindowsまたはMacの手順で、新しい専用ログインを作ります。AI Usageの「設定」→「Codex認証を登録・差替え」から、新しいrefresh tokenを入力してください。Scriptableがトークンを更新するとPCの `auth.json` は古くなり得るため、その古いトークンを繰り返し入力しません。
 
-1. **元ウィジェットの停止を確認する。** 通常のPC用Codex認証を流用せず、ウィジェット専用の新しいログインを作ります。
-2. **WindowsのPowerShellで専用ログインを実行する。** 以下はこの成果物の作業ディレクトリ内に認証ファイルを作る手順です。Codex CLIの導入済み環境で実行し、開いたブラウザーで同じChatGPTアカウントにログインします。`CODEX_HOME` は子プロセスだけに設定され、通常のCodex設定は変更しません。
-
-   ```powershell
-   $widgetAuthDirectory = Join-Path $env:TEMP 'ai-usage-widget-auth'
-   New-Item -ItemType Directory -Path $widgetAuthDirectory -Force | Out-Null
-   $widgetLoginInfo = [System.Diagnostics.ProcessStartInfo]::new()
-   $widgetLoginInfo.FileName = $env:ComSpec
-   $widgetLoginInfo.Arguments = '/d /c codex -c "cli_auth_credentials_store=''file''" login'
-   $widgetLoginInfo.UseShellExecute = $false
-   $widgetLoginInfo.EnvironmentVariables['CODEX_HOME'] = $widgetAuthDirectory
-   $widgetLoginProcess = [System.Diagnostics.Process]::Start($widgetLoginInfo)
-   $widgetLoginProcess.WaitForExit()
-   ```
-
-3. **新しいrefresh tokenだけを自分の端末へ移す。** 次のコマンドはトークンを表示せずPCのクリップボードにコピーします。安全な端末間転送で自分のiPhoneへ移し、AI Usageの「設定」→「Codexの再認証トークンを登録」の専用入力欄に入力します。auth.json全体は入力・共有しません。
-
-   ```powershell
-   $widgetCredentialFile = Join-Path $widgetAuthDirectory 'auth.json'
-   $widgetCredentials = Get-Content -LiteralPath $widgetCredentialFile -Raw | ConvertFrom-Json
-   if (-not $widgetCredentials.tokens.refresh_token) { throw 'refresh tokenがありません。ログイン結果を確認してください。' }
-   Set-Clipboard -Value $widgetCredentials.tokens.refresh_token
-   ```
-
-4. **接続を確認する。** 保存後の取得が正常になったことを確認し、PCとiPhoneのクリップボードからトークンを消します。PCでは `Set-Clipboard -Value ''` を実行できます。この専用認証をCLIで通常使用しません。
-
-ログイン操作はこの実装で未実施です。CLIの変更で手順が合わない場合は、[公式認証資料](https://learn.chatgpt.com/docs/auth)と[元ウィジェットの手順](https://github.com/yoyocircle/codex-usage-widget)を確認してください。APIキーの登録ではChatGPTの利用枠認証を置き換えられません。
+初回設定も再認証も同じ手順で行えます。CLIの導入・ログイン方法は[公式CLI資料](https://learn.chatgpt.com/docs/codex/cli)と[公式認証資料](https://learn.chatgpt.com/docs/auth)を参照しています。APIキーの登録ではChatGPTの利用枠認証を置き換えられません。
 
 ## 保存情報と対応API
 

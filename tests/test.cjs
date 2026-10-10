@@ -402,6 +402,7 @@ test('failed cache writes preserve current verified values but expose storage wa
 function uiSandbox({ inWidget = true, family = 'medium', screenWidth = 393, choices = [], secureValue = '', httpFailure = false,
     throwHTTPStatus = null, textValues = [] } = {}) {
   const rendered = [], texts = [], requests = [], files = new Map(), keys = new Map();
+  const shownAlerts = [], openedURLs = [];
   let complete = 0, alertCount = 0;
   const warnings = [];
   class Node {
@@ -417,8 +418,8 @@ function uiSandbox({ inWidget = true, family = 'medium', screenWidth = 393, choi
     addAction() {} addCancelAction() {} addDestructiveAction() {}
     addSecureTextField() {} addTextField() {}
     textFieldValue() { return textValues.length ? textValues.shift() : secureValue; }
-    async presentAlert() { return choices.length ? choices.shift() : -1; }
-    async presentSheet() { return choices.length ? choices.shift() : -1; }
+    async presentAlert() { shownAlerts.push({ title: this.title, message: this.message }); return choices.length ? choices.shift() : -1; }
+    async presentSheet() { shownAlerts.push({ title: this.title, message: this.message }); return choices.length ? choices.shift() : -1; }
   }
   class Request {
     constructor(url) { this.url = url; requests.push(this); }
@@ -429,7 +430,9 @@ function uiSandbox({ inWidget = true, family = 'medium', screenWidth = 393, choi
         throw new Error('synthetic-private-http-error');
       }
       this.response = { statusCode: 200, headers: {} };
-      return JSON.stringify(this.url === C.URLS.go ? fixtures.opencodeGo : fixtures.codex);
+      return JSON.stringify(this.url === C.URLS.token ? {
+        access_token: jwt(Date.now() / 1000 + 7200, 'synthetic-ui-account'), refresh_token: 'synthetic-ui-rotated',
+      } : this.url === C.URLS.go ? fixtures.opencodeGo : fixtures.codex);
     }
   }
   class DrawContext { setFillColor() {} fillRect() {} getImage() { return {}; } }
@@ -448,12 +451,14 @@ function uiSandbox({ inWidget = true, family = 'medium', screenWidth = 393, choi
     ListWidget: Node, Alert, Request, DrawContext,
     Size: class { constructor(width, height) { this.width = width; this.height = height; } },
     Rect: class {}, QuickLook: { present: async value => warnings.push(value) },
+    Safari: { openInApp: async url => openedURLs.push(url) },
   };
   const run = async () => {
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
     await new AsyncFunction(...Object.keys(context), source)(...Object.values(context));
   };
-  return { run, keys, files, rendered, texts, requests, warnings, complete: () => complete, alerts: () => alertCount };
+  return { run, keys, files, rendered, texts, requests, warnings, shownAlerts, openedURLs,
+    complete: () => complete, alerts: () => alertCount };
 }
 
 test('medium widget no auth renders safely without input dialogs', async () => {
@@ -492,15 +497,15 @@ test('configured widget renders all five rows at multiple device widths with sec
 });
 
 test('in-app first setup saves secure input and manual update can preview without undefined functions', async () => {
-  const s = uiSandbox({ inWidget: false, choices: [0, 0, -1], secureValue: 'synthetic-first-key' });
+  const s = uiSandbox({ inWidget: false, choices: [1, 0, 2, 0, -1], secureValue: 'synthetic-first-key' });
   await s.run();
   assert.equal(s.keys.get(C.KEYS.go), 'synthetic-first-key');
   assert.equal(s.requests.length, 2); assert.equal(s.complete(), 1);
   assert.ok(s.rendered.length >= 2);
 });
 
-test('in-app canceled setup, detail, diagnostic and settings exit are safe', async () => {
-  const s = uiSandbox({ inWidget: false, choices: [-1, 2, 4, 3, -1, -1] });
+test('in-app skipped setup, detail, diagnostic and settings exit are safe', async () => {
+  const s = uiSandbox({ inWidget: false, choices: [2, 2, 4, 3, -1, -1] });
   await s.run();
   assert.equal(s.requests.length, 0); assert.equal(s.complete(), 1);
   assert.equal(s.warnings.length, 2);
@@ -509,7 +514,7 @@ test('in-app canceled setup, detail, diagnostic and settings exit are safe', asy
 });
 
 test('Scriptable throwing on HTTP failure still reports 403 instead of generic network failure', async () => {
-  const s = uiSandbox({ inWidget: false, choices: [4, -1], throwHTTPStatus: 403 });
+  const s = uiSandbox({ inWidget: false, choices: [2, 4, -1], throwHTTPStatus: 403 });
   s.keys.set(C.KEYS.go, 'synthetic-http-error-key');
   await s.run();
   assert.match(s.warnings[0], /http_403/);
@@ -518,7 +523,7 @@ test('Scriptable throwing on HTTP failure still reports 403 instead of generic n
 });
 
 test('in-app interval settings save and apply the requested refresh date', async () => {
-  const s = uiSandbox({ inWidget: false, choices: [3, 2, 0, -1], textValues: ['30'] });
+  const s = uiSandbox({ inWidget: false, choices: [2, 3, 2, 0, -1], textValues: ['30'] });
   s.keys.set(C.KEYS.go, 'synthetic-settings-key');
   const before = Date.now();
   await s.run();
@@ -536,5 +541,96 @@ test('in-app key deletion confirms and clears only Go credentials', async () => 
   assert.equal(s.keys.has(C.KEYS.go), false);
   assert.equal(s.keys.get(C.KEYS.account), 'synthetic-stay-account');
   assert.equal(s.files.has('/fixture/AIUsage/cache-opencodeGo.json'), false);
+  assert.equal(s.complete(), 1);
+});
+
+test('fresh controller detects missing Codex independently of Go key', () => {
+  const s = setup();
+  assert.equal(s.ctl.hasCodexAuth(), false);
+  s.ctl.saveGoKey('synthetic-go-only');
+  assert.equal(s.ctl.hasCodexAuth(), false);
+  s.ctl.importCodexRefresh('synthetic-initial-refresh');
+  assert.equal(s.ctl.hasCodexAuth(), true);
+});
+
+test('pasting an auth JSON document cannot replace saved credentials', () => {
+  const s = setup(); s.auth();
+  assert.equal(s.ctl.importCodexRefresh('{"tokens":{"refresh_token":"synthetic-json-token"}}'), false);
+  assert.equal(s.ctl.importCodexRefresh('["synthetic-array-token"]'), false);
+  assert.equal(s.keys.get(C.KEYS.refresh), 'synthetic-refresh');
+  assert.equal(s.ctl.saveGoKey('{"key":"synthetic-json-key"}'), false);
+  assert.equal(s.keys.get(C.KEYS.go), 'synthetic-go-key');
+});
+
+test('fresh in-app installation configures both providers without an old widget', async () => {
+  const s = uiSandbox({ inWidget: false, choices: [0, 0, 0, 1, 0, 1, -1],
+    textValues: ['synthetic-new-codex-refresh', 'synthetic-new-go-key'] });
+  await s.run();
+  assert.equal(s.keys.get(C.KEYS.refresh), 'synthetic-ui-rotated');
+  assert.equal(s.keys.get(C.KEYS.account), 'synthetic-ui-account');
+  assert.equal(s.keys.get(C.KEYS.go), 'synthetic-new-go-key');
+  assert.equal(s.requests.length, 3);
+  assert.equal(s.requests.filter(r => r.url === C.URLS.token).length, 1);
+  assert.equal(s.requests.filter(r => r.url === C.URLS.codex).length, 1);
+  assert.equal(s.requests.filter(r => r.url === C.URLS.go).length, 1);
+  assert.ok(s.shownAlerts.some(a => a.title === 'Codexの初期設定'));
+  assert.ok(s.shownAlerts.some(a => a.title === 'Codexの認証トークン'));
+  assert.ok(s.texts.includes('99%')); assert.equal(s.complete(), 1);
+});
+
+test('closing initial setup makes no requests and preserves existing credentials', async () => {
+  const s = uiSandbox({ inWidget: false, choices: [-1] });
+  s.keys.set(C.KEYS.go, 'synthetic-preserved-go-key');
+  await s.run();
+  assert.equal(s.keys.get(C.KEYS.go), 'synthetic-preserved-go-key');
+  assert.equal(s.requests.length, 0); assert.equal(s.complete(), 1);
+  assert.equal(s.rendered.length, 0);
+});
+
+test('Codex first setup opens a public guide without sending credentials or fetching usage', async () => {
+  const s = uiSandbox({ inWidget: false, choices: [0, 1, -1] });
+  await s.run();
+  assert.deepEqual(s.openedURLs, ['https://github.com/norei3510/ai-usage-widget/blob/main/SETUP.md']);
+  assert.equal(s.requests.length, 0); assert.equal(s.keys.size, 0);
+  assert.equal(s.complete(), 1);
+});
+
+test('canceling Codex secure input returns to setup and permits Go-only display', async () => {
+  const s = uiSandbox({ inWidget: false, choices: [0, 0, -1, 2, -1] });
+  s.keys.set(C.KEYS.go, 'synthetic-go-after-cancel');
+  await s.run();
+  assert.equal(s.keys.has(C.KEYS.refresh), false);
+  assert.equal(s.requests.length, 1); assert.equal(s.requests[0].url, C.URLS.go);
+  assert.equal(s.shownAlerts.filter(a => a.title === 'AI Usage 初期設定').length, 2);
+  assert.equal(s.complete(), 1);
+});
+
+test('fully configured migration skips initial input and fetches both providers', async () => {
+  const s = uiSandbox({ inWidget: false, choices: [-1] });
+  s.keys.set(C.KEYS.access, jwt(Date.now() / 1000 + 7200));
+  s.keys.set(C.KEYS.refresh, 'synthetic-migrated-refresh');
+  s.keys.set(C.KEYS.account, 'synthetic-migrated-account');
+  s.keys.set(C.KEYS.go, 'synthetic-migrated-go');
+  await s.run();
+  assert.equal(s.shownAlerts.length, 1); assert.equal(s.shownAlerts[0].title, 'AI Usage');
+  assert.equal(s.requests.length, 2);
+  assert.equal(s.keys.get(C.KEYS.refresh), 'synthetic-migrated-refresh');
+});
+
+test('Codex-only first setup completes, leaving Go visibly unconfigured', async () => {
+  const s = uiSandbox({ inWidget: false, choices: [0, 0, 0, 2, -1], secureValue: 'synthetic-codex-only' });
+  await s.run();
+  assert.equal(s.requests.length, 2);
+  assert.equal(s.requests.some(r => r.url === C.URLS.go), false);
+  assert.equal(s.texts.filter(t => t === '--%').length, 3);
+  assert.ok(s.texts.includes('設定が必要'));
+});
+
+test('Codex can also be registered later from settings without any existing token', async () => {
+  const s = uiSandbox({ inWidget: false, choices: [2, 3, 3, 0, 0, -1], secureValue: 'synthetic-settings-codex' });
+  s.keys.set(C.KEYS.go, 'synthetic-existing-go');
+  await s.run();
+  assert.equal(s.keys.get(C.KEYS.refresh), 'synthetic-ui-rotated');
+  assert.ok(s.texts.includes('99%'));
   assert.equal(s.complete(), 1);
 });

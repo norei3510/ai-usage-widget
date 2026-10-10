@@ -1,6 +1,6 @@
-// AI Usage v1.0 — paste this entire file into Scriptable as "AI Usage".
+// AI Usage v1.1 — paste this entire file into Scriptable as "AI Usage".
 // No credentials belong in this source. All credentials stay in Keychain.
-// Reference date: 2026-10-07. See README.md and VALIDATION.md.
+// Setup guide updated: 2026-10-11. See README.md and VALIDATION.md.
 
 const AIUsageCore = (() => {
   const VERSION = 1;
@@ -370,7 +370,7 @@ const AIUsageCore = (() => {
     }
 
     function saveGoKey(key) {
-      if (typeof key !== "string" || !key.trim() || /\s/.test(key.trim())) return false;
+      if (typeof key !== "string" || !key.trim() || /\s/.test(key.trim()) || /^[\[{\"]/.test(key.trim())) return false;
       env.keychain.set(KEYS.go, key.trim());
       clearProvider("opencodeGo");
       return true;
@@ -389,7 +389,7 @@ const AIUsageCore = (() => {
     }
 
     function importCodexRefresh(token) {
-      if (typeof token !== "string" || !token.trim() || /\s/.test(token.trim())) return false;
+      if (typeof token !== "string" || !token.trim() || /\s/.test(token.trim()) || /^[\[{\"]/.test(token.trim())) return false;
       env.keychain.set(KEYS.refresh, token.trim());
       for (const key of [KEYS.access, KEYS.account]) if (env.keychain.contains(key)) env.keychain.remove(key);
       clearProvider("codex");
@@ -412,7 +412,8 @@ const AIUsageCore = (() => {
       return JSON.stringify(report, null, 2);
     }
 
-    return { prefs, getCache, loadProvider, loadAll, hasGoKey: () => !!keyGet(KEYS.go),
+    return { prefs, getCache, loadProvider, loadAll,
+      hasCodexAuth: () => !!(keyGet(KEYS.refresh) || keyGet(KEYS.access)), hasGoKey: () => !!keyGet(KEYS.go),
       saveGoKey, deleteGoKey, importCodexRefresh, saveRefreshMinutes, diagnosticReport };
   }
 
@@ -588,8 +589,8 @@ async function showMessage(title, message) {
 
 async function enterSecret(controller, codex = false) {
   const alert = new Alert();
-  alert.title = codex ? "Codexの再認証" : "OpenCode GoのAPIキー";
-  alert.message = codex ? "新しく作成した専用認証のrefresh tokenを入力します。auth.json全体は入力しません。元のCodexウィジェットは停止してください。" :
+  alert.title = codex ? "Codexの認証トークン" : "OpenCode GoのAPIキー";
+  alert.message = codex ? "PCで作成したウィジェット専用ログインのrefresh tokenだけを入力します。auth.json全体は入力しません。入力はこのiPhoneのKeychainに保存します。" :
     "キーはこのiPhoneのKeychainに保存します。チャットへの送信は不要です。";
   alert.addSecureTextField(codex ? "refresh token" : "APIキー", "");
   alert.addAction("保存");
@@ -597,8 +598,50 @@ async function enterSecret(controller, codex = false) {
   if (await alert.presentAlert() < 0) return false;
   const value = alert.textFieldValue(0);
   const saved = codex ? controller.importCodexRefresh(value) : controller.saveGoKey(value);
-  if (!saved) await showMessage("保存できません", "空欄または途中に空白があります。キーの文字列だけを入力してください。");
+  if (!saved) await showMessage("保存できません", "空欄・途中の空白・JSON全文を確認してください。キーまたはrefresh tokenの文字列だけを入力します。");
   return saved;
+}
+
+async function configureCodex(controller) {
+  const guide = new Alert();
+  guide.title = controller.hasCodexAuth() ? "Codex認証を差し替え" : "Codexの初期設定";
+  guide.message = controller.hasCodexAuth() ?
+    "保存済み認証を新しいウィジェット専用ログインに置き換えます。別のCodexウィジェットで同じ認証を使用している場合は、その実行を止めてください。" :
+    "初回だけPCでCodex CLIを使って専用ログインを作成します。旧ウィジェットの導入は不要です。手順に沿ってrefresh tokenを用意し、このiPhoneへ入力してください。設定後の日常利用はiPhoneだけでできます。";
+  guide.addAction("用意したトークンを入力");
+  guide.addAction("認証の作成手順を開く");
+  guide.addCancelAction("戻る");
+  const choice = await guide.presentSheet();
+  if (choice === 0) return await enterSecret(controller, true);
+  if (choice === 1) await Safari.openInApp("https://github.com/norei3510/ai-usage-widget/blob/main/SETUP.md", false);
+  return false;
+}
+
+async function initialSetup(controller) {
+  // This function is reached only in the app, never by a Home Screen widget.
+  while (true) {
+    const codex = controller.hasCodexAuth(), go = controller.hasGoKey();
+    if (codex && go) return true;
+    const setup = new Alert();
+    setup.title = "AI Usage 初期設定";
+    setup.message = "Codex: " + (codex ? "保存済み" : "未設定") + "\nOpenCode Go: " + (go ? "保存済み" : "未設定") +
+      "\n\nCodexはPCで1回だけ認証を作成します。OpenCode Goは契約先で発行したAPIキーを入力します。片方だけでも表示を始められます。";
+    setup.addAction(codex ? "Codexは保存済み・設定を確認" : "Codexを設定");
+    setup.addAction(go ? "OpenCode Goは保存済み・設定を確認" : "OpenCode Goを設定");
+    setup.addAction("この状態で続ける");
+    setup.addCancelAction("閉じる");
+    const choice = await setup.presentSheet();
+    if (choice < 0) return false;
+    if (choice === 2) return true;
+    if (choice === 0) {
+      if (codex) await showMessage("Codexは保存済み", "このまま続けると保存済み認証で取得します。認証の差替えは「設定」から行えます。");
+      else await configureCodex(controller);
+    }
+    if (choice === 1) {
+      if (go) await showMessage("OpenCode Goは保存済み", "このまま続けると保存済みキーで取得します。キーの差替えは「設定」から行えます。");
+      else await enterSecret(controller);
+    }
+  }
 }
 
 async function settingsMenu(controller) {
@@ -607,7 +650,8 @@ async function settingsMenu(controller) {
   alert.addAction("OpenCode Goキーを登録・差替え");
   alert.addDestructiveAction("OpenCode Goキーを削除");
   alert.addAction("更新要求の間隔を変更");
-  alert.addAction("Codexの再認証トークンを登録");
+  alert.addAction("Codex認証を登録・差替え");
+  alert.addAction("初期設定を開く");
   alert.addCancelAction("戻る");
   const choice = await alert.presentSheet();
   if (choice === 0) await enterSecret(controller);
@@ -630,12 +674,8 @@ async function settingsMenu(controller) {
       }
     }
   }
-  if (choice === 3) {
-    const confirm = new Alert(); confirm.title = "Codex認証を差し替え";
-    confirm.message = "既存認証を新しい専用認証に置き換えます。現在の認証が使える場合は不要です。";
-    confirm.addAction("新しいトークンを入力"); confirm.addCancelAction("キャンセル");
-    if (await confirm.presentAlert() === 0) await enterSecret(controller, true);
-  }
+  if (choice === 3) await configureCodex(controller);
+  if (choice === 4) await initialSetup(controller);
 }
 
 function detailText(results) {
@@ -668,7 +708,7 @@ async function main() {
         Script.setWidget(createWidget(results, controller.prefs().refreshMinutes));
       }
     } else {
-      if (!controller.hasGoKey()) await enterSecret(controller);
+      if ((!controller.hasCodexAuth() || !controller.hasGoKey()) && !await initialSetup(controller)) return;
       let results = await controller.loadAll();
       Script.setWidget(createWidget(results, controller.prefs().refreshMinutes));
       let active = true;
